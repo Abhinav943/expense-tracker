@@ -30,7 +30,13 @@ func main() {
 	fmt.Println("Successfully connected to the expense database!")
 
 	store := storage.NewStorage(db)
-	app := api.NewAPI(store)
+
+	jwtsecret := os.Getenv("JWT_SECRET")
+	if jwtsecret == "" {
+		log.Fatal("JWT_SECRET environment variable is not set")
+	}
+
+	app := api.NewAPI(store, []byte(jwtsecret))
 
 	mux := http.NewServeMux()
 	app.RegisterRoutes(mux)

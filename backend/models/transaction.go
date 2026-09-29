@@ -6,12 +6,14 @@ import (
 )
 
 type Transaction struct {
-	ID        int       `json:"id"`
-	Amount    int       `json:"amount"`
-	Kind      string    `json:"kind"`
-	Note      string    `json:"note"`
-	CreatedAt time.Time `json:"created_at"`
-	UserID  int       `json:"-"`
+	ID           int       `json:"id"`
+	Amount       int       `json:"amount"`
+	Kind         string    `json:"kind"`
+	Note         string    `json:"note"`
+	CreatedAt    time.Time `json:"created_at"`
+	UserID       int       `json:"-"`
+	CategoryID   *int      `json:"category_id,omitempty"`
+	CategoryName *string   `json:"category_name,omitempty"`
 }
 
 func ValidateTransaction(transaction *Transaction) error {

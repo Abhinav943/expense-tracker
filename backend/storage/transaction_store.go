@@ -11,37 +11,37 @@ import (
 
 var ErrNotFound = errors.New("not found")
 var ErrEmailTaken = errors.New("email already taken")
-
-type Storage struct {
-	db *sql.DB
-}
-
-func NewStorage(db *sql.DB) *Storage {
-	return &Storage{db: db}
-}
+var ErrInvalidCategory = errors.New("invalid category")
 
 func (s *Storage) CreateTransaction(ctx context.Context, t *models.Transaction) error {
-	const insertQuery = "INSERT INTO transactions (amount, kind, note, user_id) VALUES ($1, $2, $3, $4) RETURNING id, created_at"
+	const insertQuery = "INSERT INTO transactions (amount, kind, note, user_id, category_id) VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at"
 	err := s.db.QueryRowContext(ctx,
 		insertQuery,
 		t.Amount,
 		t.Kind,
 		t.Note,
 		t.UserID,
+		t.CategoryID,
 	).Scan(&t.ID, &t.CreatedAt)
 
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) && pqErr.Code == "23503" {
+		return ErrInvalidCategory
+	}
 	return err
 }
 
 func (s *Storage) GetTransaction(ctx context.Context, userID int, id int) (models.Transaction, error) {
 	var transaction models.Transaction
-	const getQuery = "SELECT id, amount, kind, note, created_at FROM transactions WHERE user_id = $1 AND id = $2"
+	const getQuery = "SELECT t.id, t.amount, t.kind, t.note, t.created_at, t.category_id, c.name FROM transactions t LEFT JOIN categories c ON t.category_id = c.id  WHERE t.user_id = $1 AND t.id = $2"
 	err := s.db.QueryRowContext(ctx, getQuery, userID, id).Scan(
 		&transaction.ID,
 		&transaction.Amount,
 		&transaction.Kind,
 		&transaction.Note,
 		&transaction.CreatedAt,
+		&transaction.CategoryID,
+		&transaction.CategoryName,
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -51,7 +51,7 @@ func (s *Storage) GetTransaction(ctx context.Context, userID int, id int) (model
 }
 
 func (s *Storage) GetAllTransactions(ctx context.Context, userID int) ([]models.Transaction, error) {
-	const getAllQuery = "SELECT id, amount, kind, note, created_at FROM transactions WHERE user_id = $1 ORDER BY created_at DESC, id DESC"
+	const getAllQuery = "SELECT t.id, t.amount, t.kind, t.note, t.created_at, t.category_id, c.name FROM transactions t LEFT JOIN categories c ON t.category_id = c.id WHERE t.user_id = $1 ORDER BY t.created_at DESC"
 	rows, err := s.db.QueryContext(ctx, getAllQuery, userID)
 	if err != nil {
 		return nil, err
@@ -67,6 +67,8 @@ func (s *Storage) GetAllTransactions(ctx context.Context, userID int) ([]models.
 			&t.Kind,
 			&t.Note,
 			&t.CreatedAt,
+			&t.CategoryID,
+			&t.CategoryName,
 		)
 		if err != nil {
 			return nil, err
@@ -106,31 +108,4 @@ func (s *Storage) UpdateTransaction(ctx context.Context, t *models.Transaction, 
 		return ErrNotFound
 	}
 	return err
-}
-
-func (s *Storage) CreateUser(ctx context.Context, u *models.User) error {
-	const insertQuery = "INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, created_at"
-	err := s.db.QueryRowContext(ctx, insertQuery, u.Email, u.PasswordHash).Scan(&u.ID, &u.CreatedAt)
-
-	var pqErr *pq.Error
-	if errors.As(err, &pqErr) && pqErr.Code == "23505" {
-		return ErrEmailTaken
-	}
-	return err
-}
-
-func (s *Storage) GetUserByEmail(ctx context.Context, email string) (models.User, error) {
-	var user models.User
-	const getQuery = "SELECT id, email, password_hash, created_at FROM users WHERE email = $1"
-	err := s.db.QueryRowContext(ctx, getQuery, email).Scan(
-		&user.ID,
-		&user.Email,
-		&user.PasswordHash,
-		&user.CreatedAt,
-	)
-
-	if errors.Is(err, sql.ErrNoRows) {
-		return user, ErrNotFound
-	}
-	return user, err
 }

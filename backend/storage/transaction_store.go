@@ -44,7 +44,7 @@ func (s *Storage) CreateTransaction(ctx context.Context, t *models.Transaction) 
 
 func (s *Storage) GetTransaction(ctx context.Context, userID int, id int) (models.Transaction, error) {
 	var transaction models.Transaction
-	const getQuery = "SELECT t.id, t.amount, t.kind, t.note, t.created_at, t.category_id, c.name FROM transactions t LEFT JOIN categories c ON t.category_id = c.id  WHERE t.user_id = $1 AND t.id = $2"
+	const getQuery = "SELECT t.id, t.amount, t.kind, t.note, t.created_at, t.category_id, c.name FROM transactions t LEFT JOIN categories c ON t.category_id = c.id AND c.user_id = t.user_id WHERE t.user_id = $1 AND t.id = $2"
 	err := s.db.QueryRowContext(ctx, getQuery, userID, id).Scan(
 		&transaction.ID,
 		&transaction.Amount,
@@ -62,42 +62,42 @@ func (s *Storage) GetTransaction(ctx context.Context, userID int, id int) (model
 }
 
 func (s *Storage) GetAllTransactions(ctx context.Context, userID int, filter models.TransactionFilter) ([]models.Transaction, error) {
-	conditions := []string{"user_id = $1"}
+	conditions := []string{"t.user_id = $1"}
 	args := []any{userID}
 
 	if filter.Kind != "" {
-		conditions = append(conditions, fmt.Sprintf("kind = $%d", len(args)+1))
+		conditions = append(conditions, fmt.Sprintf("t.kind = $%d", len(args)+1))
 		args = append(args, filter.Kind)
 	}
 	if filter.CategoryID != 0 {
-		conditions = append(conditions, fmt.Sprintf("category_id = $%d", len(args)+1))
+		conditions = append(conditions, fmt.Sprintf("t.category_id = $%d", len(args)+1))
 		args = append(args, filter.CategoryID)
 	}
 	if filter.MinAmount != nil {
-		conditions = append(conditions, fmt.Sprintf("amount >= $%d", len(args)+1))
+		conditions = append(conditions, fmt.Sprintf("t.amount >= $%d", len(args)+1))
 		args = append(args, *filter.MinAmount)
 	}
 	if filter.MaxAmount != nil {
-		conditions = append(conditions, fmt.Sprintf("amount <= $%d", len(args)+1))
+		conditions = append(conditions, fmt.Sprintf("t.amount <= $%d", len(args)+1))
 		args = append(args, *filter.MaxAmount)
 	}
 	if filter.From != nil {
-		conditions = append(conditions, fmt.Sprintf("created_at >= $%d", len(args)+1))
+		conditions = append(conditions, fmt.Sprintf("t.created_at >= $%d", len(args)+1))
 		args = append(args, *filter.From)
 	}
 	if filter.To != nil {
 		toExclusive := filter.To.AddDate(0, 0, 1)
-		conditions = append(conditions, fmt.Sprintf("created_at < $%d", len(args)+1))
+		conditions = append(conditions, fmt.Sprintf("t.created_at < $%d", len(args)+1))
 		args = append(args, toExclusive)
 	}
 	if filter.Note != "" {
-		conditions = append(conditions, fmt.Sprintf("note ILIKE '%%' || $%d || '%%'", len(args)+1))
+		conditions = append(conditions, fmt.Sprintf("t.note ILIKE '%%' || $%d || '%%'", len(args)+1))
 		args = append(args, filter.Note)
 	}
 
-	query := "SELECT id, amount, kind, note, created_at FROM transactions WHERE " +
+	query := "SELECT t.id, t.amount, t.kind, t.note, t.created_at, t.category_id, c.name FROM transactions t LEFT JOIN categories c ON t.category_id = c.id AND c.user_id = t.user_id WHERE " +
 		strings.Join(conditions, " AND ") +
-		" ORDER BY created_at DESC, id DESC"
+		" ORDER BY t.created_at DESC, t.id DESC"
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -108,7 +108,7 @@ func (s *Storage) GetAllTransactions(ctx context.Context, userID int, filter mod
 	transactions := []models.Transaction{}
 	for rows.Next() {
 		var t models.Transaction
-		err := rows.Scan(&t.ID, &t.Amount, &t.Kind, &t.Note, &t.CreatedAt)
+		err := rows.Scan(&t.ID, &t.Amount, &t.Kind, &t.Note, &t.CreatedAt, &t.CategoryID, &t.CategoryName)
 		if err != nil {
 			return nil, err
 		}
@@ -138,11 +138,25 @@ func (s *Storage) DeleteTransaction(ctx context.Context, userID int, id int) err
 }
 
 func (s *Storage) UpdateTransaction(ctx context.Context, t *models.Transaction, userID int, id int) error {
-	const updateQuery = "UPDATE transactions SET amount = $1, kind = $2, note = $3 WHERE user_id = $4 AND id = $5 RETURNING id, created_at"
-	err := s.db.QueryRowContext(ctx, updateQuery, t.Amount, t.Kind, t.Note, userID, id).Scan(&t.ID, &t.CreatedAt)
+	const updateQuery = `
+		UPDATE transactions
+		SET amount = $1, kind = $2, note = $3, category_id = $6
+		WHERE user_id = $4 AND id = $5
+			AND ($6::integer IS NULL OR EXISTS (
+				SELECT 1 FROM categories WHERE id = $6 AND user_id = $4
+			))
+		RETURNING id, created_at`
+	err := s.db.QueryRowContext(ctx, updateQuery, t.Amount, t.Kind, t.Note, userID, id, t.CategoryID).Scan(&t.ID, &t.CreatedAt)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		return ErrNotFound
+		var transactionExists bool
+		if checkErr := s.db.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM transactions WHERE user_id = $1 AND id = $2)", userID, id).Scan(&transactionExists); checkErr != nil {
+			return checkErr
+		}
+		if !transactionExists {
+			return ErrNotFound
+		}
+		return ErrInvalidCategory
 	}
 	return err
 }

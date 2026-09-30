@@ -21,8 +21,8 @@ type TransactionFilter struct {
 	CategoryID int
 	MinAmount  *int
 	MaxAmount  *int
-	From   *time.Time
-	To     *time.Time
+	From       *time.Time
+	To         *time.Time
 	Note       string
 }
 
@@ -48,6 +48,10 @@ func (filter *TransactionFilter) Validate() error {
 
 	if filter.MaxAmount != nil && *filter.MaxAmount < 0 {
 		return errors.New("Invalid MaxAmount: must be above or equal to zero")
+	}
+
+	if filter.MinAmount != nil && filter.MaxAmount != nil && *filter.MinAmount > *filter.MaxAmount {
+		return errors.New("Invalid amount range: min_amount must be less than or equal to max_amount")
 	}
 
 	if filter.From != nil && filter.To != nil && filter.To.Before(*filter.From) {

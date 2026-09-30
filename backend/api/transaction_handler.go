@@ -22,13 +22,13 @@ func parseTransactionFilter(r *http.Request) (models.TransactionFilter, error) {
 	query := r.URL.Query()
 
 	validFilters := map[string]bool{
-		"kind":       true,
-		"categoryID": true,
-		"minAmount":  true,
-		"maxAmount":  true,
-		"from":       true,
-		"to":         true,
-		"note":       true,
+		"kind":        true,
+		"category_id": true,
+		"min_amount":  true,
+		"max_amount":  true,
+		"from":        true,
+		"to":          true,
+		"note":        true,
 	}
 
 	for key := range query {
@@ -45,7 +45,7 @@ func parseTransactionFilter(r *http.Request) (models.TransactionFilter, error) {
 
 	if value := query.Get("category_id"); value != "" {
 		id, err := strconv.Atoi(value)
-		if err != nil || id < 0 {
+		if err != nil || id < 1 {
 			return models.TransactionFilter{}, errors.New("Invalid category_id: must be a positive integer")
 		}
 		filter.CategoryID = id
@@ -65,6 +65,14 @@ func parseTransactionFilter(r *http.Request) (models.TransactionFilter, error) {
 			return models.TransactionFilter{}, errors.New("Invalid max_amount: must be a non-negative integer")
 		}
 		filter.MaxAmount = &amount
+	}
+
+	if v := query.Get("from"); v != "" {
+		t, err := time.ParseInLocation("2006-01-02", v, indiaTimeZone)
+		if err != nil {
+			return models.TransactionFilter{}, errors.New("Invalid from: must be a date in YYYY-MM-DD format")
+		}
+		filter.From = &t
 	}
 
 	if v := query.Get("to"); v != "" {
@@ -233,6 +241,9 @@ func (api *API) updateTransactionHandler(w http.ResponseWriter, r *http.Request)
 	err = api.storage.UpdateTransaction(r.Context(), &transaction, userID, id)
 	if errors.Is(err, storage.ErrNotFound) {
 		http.Error(w, "Transaction not found", http.StatusNotFound)
+		return
+	} else if errors.Is(err, storage.ErrInvalidCategory) {
+		http.Error(w, "Invalid category", http.StatusBadRequest)
 		return
 	} else if err != nil {
 		http.Error(w, "Failed to update transaction", http.StatusInternalServerError)

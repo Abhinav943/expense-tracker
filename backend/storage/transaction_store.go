@@ -5,6 +5,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/lib/pq"
 )
@@ -59,9 +61,45 @@ func (s *Storage) GetTransaction(ctx context.Context, userID int, id int) (model
 	return transaction, err
 }
 
-func (s *Storage) GetAllTransactions(ctx context.Context, userID int) ([]models.Transaction, error) {
-	const getAllQuery = "SELECT t.id, t.amount, t.kind, t.note, t.created_at, t.category_id, c.name FROM transactions t LEFT JOIN categories c ON t.category_id = c.id WHERE t.user_id = $1 ORDER BY t.created_at DESC"
-	rows, err := s.db.QueryContext(ctx, getAllQuery, userID)
+func (s *Storage) GetAllTransactions(ctx context.Context, userID int, filter models.TransactionFilter) ([]models.Transaction, error) {
+	conditions := []string{"user_id = $1"}
+	args := []any{userID}
+
+	if filter.Kind != "" {
+		conditions = append(conditions, fmt.Sprintf("kind = $%d", len(args)+1))
+		args = append(args, filter.Kind)
+	}
+	if filter.CategoryID != 0 {
+		conditions = append(conditions, fmt.Sprintf("category_id = $%d", len(args)+1))
+		args = append(args, filter.CategoryID)
+	}
+	if filter.MinAmount != nil {
+		conditions = append(conditions, fmt.Sprintf("amount >= $%d", len(args)+1))
+		args = append(args, *filter.MinAmount)
+	}
+	if filter.MaxAmount != nil {
+		conditions = append(conditions, fmt.Sprintf("amount <= $%d", len(args)+1))
+		args = append(args, *filter.MaxAmount)
+	}
+	if filter.From != nil {
+		conditions = append(conditions, fmt.Sprintf("created_at >= $%d", len(args)+1))
+		args = append(args, *filter.From)
+	}
+	if filter.To != nil {
+		toExclusive := filter.To.AddDate(0, 0, 1)
+		conditions = append(conditions, fmt.Sprintf("created_at < $%d", len(args)+1))
+		args = append(args, toExclusive)
+	}
+	if filter.Note != "" {
+		conditions = append(conditions, fmt.Sprintf("note ILIKE '%%' || $%d || '%%'", len(args)+1))
+		args = append(args, filter.Note)
+	}
+
+	query := "SELECT id, amount, kind, note, created_at FROM transactions WHERE " +
+		strings.Join(conditions, " AND ") +
+		" ORDER BY created_at DESC, id DESC"
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -70,25 +108,15 @@ func (s *Storage) GetAllTransactions(ctx context.Context, userID int) ([]models.
 	transactions := []models.Transaction{}
 	for rows.Next() {
 		var t models.Transaction
-		err := rows.Scan(
-			&t.ID,
-			&t.Amount,
-			&t.Kind,
-			&t.Note,
-			&t.CreatedAt,
-			&t.CategoryID,
-			&t.CategoryName,
-		)
+		err := rows.Scan(&t.ID, &t.Amount, &t.Kind, &t.Note, &t.CreatedAt)
 		if err != nil {
 			return nil, err
 		}
 		transactions = append(transactions, t)
 	}
-
 	if err = rows.Err(); err != nil {
 		return nil, err
 	}
-
 	return transactions, nil
 }
 

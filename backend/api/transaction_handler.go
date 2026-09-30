@@ -5,14 +5,87 @@ import (
 	"backend/storage"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 )
 
+const maxNoteFilterLength = 100
 
 func getUserIDFromContext(r *http.Request) (int, bool) {
 	userID, ok := r.Context().Value(userIDKey).(int)
 	return userID, ok
+}
+
+func parseTransactionFilter(r *http.Request) (models.TransactionFilter, error) {
+	query := r.URL.Query()
+
+	validFilters := map[string]bool{
+		"kind":       true,
+		"categoryID": true,
+		"minAmount":  true,
+		"maxAmount":  true,
+		"from":       true,
+		"to":         true,
+		"note":       true,
+	}
+
+	for key := range query {
+		if !validFilters[key] {
+			return models.TransactionFilter{}, fmt.Errorf("Unknown filter '%s'. Valid filters are: kind, category_id, min_amount, max_amount, from, to, note", key)
+		}
+	}
+
+	var filter models.TransactionFilter
+
+	if value := query.Get("kind"); value != "" {
+		filter.Kind = value
+	}
+
+	if value := query.Get("category_id"); value != "" {
+		id, err := strconv.Atoi(value)
+		if err != nil || id < 0 {
+			return models.TransactionFilter{}, errors.New("Invalid category_id: must be a positive integer")
+		}
+		filter.CategoryID = id
+	}
+
+	if value := query.Get("min_amount"); value != "" {
+		amount, err := strconv.Atoi(value)
+		if err != nil || amount < 0 {
+			return models.TransactionFilter{}, errors.New("Invalid min_amount: must be a non-negative integer")
+		}
+		filter.MinAmount = &amount
+	}
+
+	if value := query.Get("max_amount"); value != "" {
+		amount, err := strconv.Atoi(value)
+		if err != nil || amount < 0 {
+			return models.TransactionFilter{}, errors.New("Invalid max_amount: must be a non-negative integer")
+		}
+		filter.MaxAmount = &amount
+	}
+
+	if v := query.Get("to"); v != "" {
+		t, err := time.ParseInLocation("2006-01-02", v, indiaTimeZone)
+		if err != nil {
+			return models.TransactionFilter{}, errors.New("Invalid to: must be a date in YYYY-MM-DD format")
+		}
+		filter.To = &t
+	}
+
+	if v := query.Get("note"); v != "" {
+		if len(v) > maxNoteFilterLength {
+			return models.TransactionFilter{}, errors.New("Invalid note: filter text is too long")
+		}
+		filter.Note = v
+	}
+
+	if err := filter.Validate(); err != nil {
+		return models.TransactionFilter{}, err
+	}
+	return filter, nil
 }
 
 func (api *API) createTransactionHandler(w http.ResponseWriter, r *http.Request) {
@@ -88,7 +161,14 @@ func (api *API) getAllTransactionsHandler(w http.ResponseWriter, r *http.Request
 		http.Error(w, "User ID not found in context", http.StatusInternalServerError)
 		return
 	}
-	transactions, err := api.storage.GetAllTransactions(r.Context(), userID)
+
+	filter, err := parseTransactionFilter(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	transactions, err := api.storage.GetAllTransactions(r.Context(), userID, filter)
 	if err != nil {
 		http.Error(w, "Failed to retrieve transactions", http.StatusInternalServerError)
 		return

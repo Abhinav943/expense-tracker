@@ -16,6 +16,16 @@ type Transaction struct {
 	CategoryName *string   `json:"category_name,omitempty"`
 }
 
+type TransactionFilter struct {
+	Kind       string
+	CategoryID int
+	MinAmount  *int
+	MaxAmount  *int
+	From   *time.Time
+	To     *time.Time
+	Note       string
+}
+
 func ValidateTransaction(transaction *Transaction) error {
 	if transaction.Amount < 0 {
 		return errors.New("Invalid Amount: must be above or equal to zero")
@@ -23,6 +33,25 @@ func ValidateTransaction(transaction *Transaction) error {
 
 	if transaction.Kind != "income" && transaction.Kind != "expense" {
 		return errors.New("Invalid kind: must be 'income' or 'expense'")
+	}
+	return nil
+}
+
+func (filter *TransactionFilter) Validate() error {
+	if filter.Kind != "" && filter.Kind != "income" && filter.Kind != "expense" {
+		return errors.New("Invalid kind: must be 'income' or 'expense'")
+	}
+
+	if filter.MinAmount != nil && *filter.MinAmount < 0 {
+		return errors.New("Invalid MinAmount: must be above or equal to zero")
+	}
+
+	if filter.MaxAmount != nil && *filter.MaxAmount < 0 {
+		return errors.New("Invalid MaxAmount: must be above or equal to zero")
+	}
+
+	if filter.From != nil && filter.To != nil && filter.To.Before(*filter.From) {
+		return errors.New("Invalid date range: FromDate must be before ToDate")
 	}
 	return nil
 }

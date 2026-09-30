@@ -80,22 +80,25 @@ The service runs on port 8080. `POST /users` and `POST /login` are public; all o
 
 ### Authenticated Routes
 
-| Method | Route              | Description                              |
-| ------ | ------------------ | ---------------------------------------- |
-| POST   | /transactions      | Create an income or expense              |
-| GET    | /transactions      | Fetch transactions, newest first         |
-| GET    | /transactions/{id} | Fetch one transaction                    |
-| PUT    | /transactions/{id} | Update a transaction                     |
-| DELETE | /transactions/{id} | Delete a transaction                     |
-| POST   | /categories        | Create a category                        |
-| GET    | /categories        | List the authenticated user's categories |
-| PUT    | /categories/{id}   | Rename a category                        |
-| DELETE | /categories/{id}   | Delete a category                        |
-| GET    | /analytics/summary | Retrieve a date-filtered summary         |
+| Method | Route                    | Description                              |
+| ------ | ------------------------ | ---------------------------------------- |
+| POST   | /transactions            | Create an income or expense              |
+| GET    | /transactions            | Fetch transactions, newest first         |
+| GET    | /transactions/{id}       | Fetch one transaction                    |
+| PUT    | /transactions/{id}       | Update a transaction                     |
+| DELETE | /transactions/{id}       | Delete a transaction                     |
+| POST   | /categories              | Create a category                        |
+| GET    | /categories              | List the authenticated user's categories |
+| PUT    | /categories/{id}         | Rename a category                        |
+| DELETE | /categories/{id}         | Delete a category                        |
+| GET    | /analytics/summary       | Retrieve a date-filtered summary         |
+| GET    | /analytics/daily-updates | Retrieve daily totals for a date range   |
 
 Category creation and rename requests use a JSON body with a non-empty `name`. Duplicate names return `409 Conflict`; successful updates and deletions return `204 No Content`.
 
-The analytics endpoint requires `start_date` and `end_date` query parameters in `YYYY-MM-DD` format. Both dates are inclusive and daily dates use UTC. The response includes total, average, and median transaction amounts; income, expense, and overall counts; net balance and savings rate (percentage); daily totals including zero-activity dates; highest and lowest income/expense days; and category totals, averages, and counts split by income and expense. Category-less transactions appear under `Uncategorized`. Peak/low day fields are `null` when the range has no transactions.
+The analytics endpoint requires `start_date` and `end_date` query parameters in `YYYY-MM-DD` format. Both dates are inclusive, use Asia/Kolkata boundaries, and the range cannot exceed 366 calendar days. The response includes total, average, and median transaction amounts; income, expense, and overall counts; net balance and savings rate (percentage); daily totals including zero-activity dates; highest and lowest income/expense days ranked only among days with transactions of that kind; and category totals, averages, and counts split by income and expense. Category-less transactions appear under `Uncategorized`. Each peak/low day field is `null` when there are no transactions of its kind in the range.
+
+`GET /analytics/daily-updates` accepts the same required date parameters and returns the `daily_totals` array on its own, including days with no activity.
 
 ```text
 GET /analytics/summary?start_date=2026-09-01&end_date=2026-09-30

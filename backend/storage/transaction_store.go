@@ -14,7 +14,13 @@ var ErrEmailTaken = errors.New("email already taken")
 var ErrInvalidCategory = errors.New("invalid category")
 
 func (s *Storage) CreateTransaction(ctx context.Context, t *models.Transaction) error {
-	const insertQuery = "INSERT INTO transactions (amount, kind, note, user_id, category_id) VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at"
+	const insertQuery = `
+		INSERT INTO transactions (amount, kind, note, user_id, category_id)
+		SELECT $1, $2, $3, $4, $5
+		WHERE $5::integer IS NULL OR EXISTS (
+			SELECT 1 FROM categories WHERE id = $5 AND user_id = $4
+		)
+		RETURNING id, created_at`
 	err := s.db.QueryRowContext(ctx,
 		insertQuery,
 		t.Amount,
@@ -23,6 +29,9 @@ func (s *Storage) CreateTransaction(ctx context.Context, t *models.Transaction) 
 		t.UserID,
 		t.CategoryID,
 	).Scan(&t.ID, &t.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrInvalidCategory
+	}
 
 	var pqErr *pq.Error
 	if errors.As(err, &pqErr) && pqErr.Code == "23503" {

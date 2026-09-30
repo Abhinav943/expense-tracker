@@ -30,4 +30,5 @@ func (api *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /categories/{id}", api.authMiddleware(api.updateCategoryHandler))
 	mux.HandleFunc("DELETE /categories/{id}", api.authMiddleware(api.deleteCategoryHandler))
 	mux.HandleFunc("GET /analytics/summary", api.authMiddleware(api.getSummaryHandler))
+	mux.HandleFunc("GET /analytics/daily-updates", api.authMiddleware(api.getDailyUpdatesHandler))
 }
